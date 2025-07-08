@@ -230,11 +230,8 @@ async function initializeBot() {
   try {
     console.log('Initializing Telegram Bot...');
     
-    // Инициализируем Google Sheets
+    // Инициализируем Google Sheets (заголовки добавляются автоматически)
     await sheetsService.init();
-    
-    // Опционально: настраиваем заголовки в таблице
-    // await sheetsService.setupHeaders();
     
     console.log('Bot is ready and running! 🚀');
     console.log('Commands available:');

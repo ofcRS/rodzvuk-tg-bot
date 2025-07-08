@@ -28,9 +28,43 @@ class SheetsService {
       this.initialized = true;
       
       console.log('Google Sheets API initialized successfully');
+      
+      // Проверяем и добавляем заголовки если таблица пустая
+      await this.ensureHeaders();
+      
     } catch (error) {
       console.error('Error initializing Google Sheets API:', error);
       throw error;
+    }
+  }
+
+  async ensureHeaders() {
+    try {
+      // Проверяем, есть ли данные в первой строке
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: config.GOOGLE_SHEET_ID,
+        range: 'Sheet1!A1:J1'
+      });
+
+      const rows = response.data.values;
+      
+      // Если первая строка пустая или нет данных, добавляем заголовки
+      if (!rows || rows.length === 0 || !rows[0] || rows[0].length === 0) {
+        await this.setupHeaders();
+        await this.formatHeaders();
+        console.log('Headers added to empty sheet');
+      } else {
+        console.log('Sheet already has headers, skipping setup');
+      }
+    } catch (error) {
+      console.error('Error checking/setting up headers:', error);
+      // Если ошибка, пробуем добавить заголовки (возможно, таблица новая)
+      try {
+        await this.setupHeaders();
+        console.log('Headers added after error check');
+      } catch (setupError) {
+        console.error('Error setting up headers:', setupError);
+      }
     }
   }
 
@@ -111,6 +145,54 @@ class SheetsService {
     } catch (error) {
       console.error('Error setting up headers:', error);
       throw error;
+    }
+  }
+
+  async formatHeaders() {
+    if (!this.initialized) {
+      await this.init();
+    }
+
+    try {
+      // Делаем первую строку жирной и добавляем фон
+      const requests = [
+        {
+          repeatCell: {
+            range: {
+              sheetId: 0,
+              startRowIndex: 0,
+              endRowIndex: 1,
+              startColumnIndex: 0,
+              endColumnIndex: 10
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: {
+                  red: 0.9,
+                  green: 0.9,
+                  blue: 0.9
+                },
+                textFormat: {
+                  bold: true
+                }
+              }
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat)'
+          }
+        }
+      ];
+
+      await this.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: config.GOOGLE_SHEET_ID,
+        resource: {
+          requests: requests
+        }
+      });
+
+      console.log('Header formatting applied successfully');
+    } catch (error) {
+      console.error('Error formatting headers:', error);
+      // Не прерываем выполнение, форматирование не критично
     }
   }
 }
