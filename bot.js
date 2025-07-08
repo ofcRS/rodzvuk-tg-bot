@@ -249,4 +249,23 @@ async function initializeBot() {
 // Запускаем бота
 initializeBot();
 
+// Создаем HTTP сервер для Heroku
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Простой endpoint для проверки здоровья бота
+app.get('/', (req, res) => {
+  res.json({
+    status: 'Bot is running! 🚀',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Запускаем HTTP сервер
+app.listen(PORT, () => {
+  console.log(`HTTP Server is running on port ${PORT}`);
+});
+
 module.exports = bot; 
