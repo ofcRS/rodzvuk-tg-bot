@@ -100,7 +100,7 @@ bot.onText(/\/help/, (msg) => {
 });
 
 // Команда /suggest
-bot.onText(/\/suggest/, (msg) => {
+bot.onText(/\/suggest/, async (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   
@@ -119,12 +119,12 @@ bot.onText(/\/suggest/, (msg) => {
 Я задам тебе ${config.QUESTIONS.length} вопросов. Отвечай на каждый вопрос отдельным сообщением.
 
 В любой момент можешь отменить заявку командой /cancel
-
-Вопрос 1/${config.QUESTIONS.length}:
-${session.getCurrentQuestion()}
   `;
   
-  bot.sendMessage(chatId, startMessage);
+  await bot.sendMessage(chatId, startMessage);
+  
+  // Отправляем первый вопрос
+  await sendNextQuestion(chatId, session);
 });
 
 // Команда /cancel
@@ -138,6 +138,138 @@ bot.onText(/\/cancel/, (msg) => {
     bot.sendMessage(chatId, '❌ Заявка отменена. Чтобы начать заново, используй /suggest');
   } else {
     bot.sendMessage(chatId, 'У тебя нет активной заявки для отмены.');
+  }
+});
+
+// Функция для отправки вопроса с учетом особых случаев
+async function sendNextQuestion(chatId, session) {
+  const questionIndex = session.currentStep;
+  const totalQuestions = config.QUESTIONS.length;
+  
+  // Если это вопрос о языке (индекс 3), показываем кнопки
+  if (questionIndex === 3) {
+    const languageKeyboard = {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '🇷🇺 Русский', callback_data: 'lang_russian' },
+            { text: '🇺🇸 Английский', callback_data: 'lang_english' }
+          ],
+          [
+            { text: '🌍 Другой язык', callback_data: 'lang_other' }
+          ]
+        ]
+      }
+    };
+    
+    const questionText = `
+Вопрос ${questionIndex + 1}/${totalQuestions}:
+${session.getCurrentQuestion()}
+
+Выбери язык трека:
+    `;
+    
+    await bot.sendMessage(chatId, questionText, languageKeyboard);
+  } else {
+    // Обычный вопрос
+    const questionText = `
+Вопрос ${questionIndex + 1}/${totalQuestions}:
+${session.getCurrentQuestion()}
+    `;
+    
+    await bot.sendMessage(chatId, questionText);
+  }
+}
+
+// Обработка callback от inline кнопок
+bot.on('callback_query', async (callbackQuery) => {
+  const chatId = callbackQuery.message.chat.id;
+  const userId = callbackQuery.from.id;
+  const data = callbackQuery.data;
+  
+  // Проверяем, есть ли активная сессия
+  if (!userStates.has(userId)) {
+    bot.answerCallbackQuery(callbackQuery.id, { text: 'Сессия не найдена. Начни заново с /suggest' });
+    return;
+  }
+  
+  const session = userStates.get(userId);
+  
+  if (!session.isActive) {
+    bot.answerCallbackQuery(callbackQuery.id, { text: 'Сессия не активна. Начни заново с /suggest' });
+    return;
+  }
+  
+  // Обработка выбора языка
+  if (data.startsWith('lang_')) {
+    let selectedLanguage;
+    
+    switch (data) {
+      case 'lang_russian':
+        selectedLanguage = 'Русский';
+        break;
+      case 'lang_english':
+        selectedLanguage = 'Английский';
+        break;
+      case 'lang_other':
+        selectedLanguage = 'Другой язык';
+        break;
+      default:
+        bot.answerCallbackQuery(callbackQuery.id, { text: 'Неизвестный выбор' });
+        return;
+    }
+    
+    // Сохраняем ответ
+    session.addAnswer(selectedLanguage);
+    session.nextStep();
+    
+    // Отвечаем на callback
+    bot.answerCallbackQuery(callbackQuery.id, { text: `Выбран язык: ${selectedLanguage}` });
+    
+    // Проверяем, все ли вопросы заданы
+    if (session.isComplete()) {
+      // Все вопросы отвечены, сохраняем в Google Sheets
+      try {
+        bot.sendMessage(chatId, '⏳ Сохраняю твою заявку...');
+        
+        const submissionData = {
+          ...session.answers,
+          userId: userId,
+          username: callbackQuery.from.username || callbackQuery.from.first_name || 'Unknown'
+        };
+        
+        await sheetsService.addSubmission(submissionData);
+        
+        // Создаем сводку ответов
+        const summary = `
+✅ Заявка успешно сохранена!
+
+📋 Твои ответы:
+• Имя: ${session.answers.name || 'Не указано'}
+• Исполнитель и трек: ${session.answers.artist || 'Не указано'}
+• Ссылка: ${session.answers.link || 'Не указано'}
+• Язык: ${session.answers.language || 'Не указано'}
+• Жанр: ${session.answers.genre || 'Не указано'}
+• Причина рекомендации: ${session.answers.reason || 'Не указано'}
+• Контакт: ${session.answers.contact || 'Не указано'}
+
+Спасибо за предложение! 🎵
+Чтобы предложить еще один трек, используй /suggest
+        `;
+        
+        bot.sendMessage(chatId, summary);
+        session.reset();
+        
+      } catch (error) {
+        console.error('Error saving submission:', error);
+        bot.sendMessage(chatId, '❌ Произошла ошибка при сохранении заявки. Попробуй еще раз позже.');
+        session.reset();
+      }
+      
+    } else {
+      // Задаем следующий вопрос
+      await sendNextQuestion(chatId, session);
+    }
   }
 });
 
@@ -162,6 +294,12 @@ bot.on('message', async (msg) => {
   
   if (!session.isActive) {
     bot.sendMessage(chatId, 'Чтобы начать предложение трека, используй команду /suggest');
+    return;
+  }
+  
+  // Если сейчас вопрос о языке (индекс 3), игнорируем текстовый ввод
+  if (session.currentStep === 3) {
+    bot.sendMessage(chatId, 'Пожалуйста, выбери язык с помощью кнопок выше ☝️');
     return;
   }
   
@@ -211,12 +349,7 @@ bot.on('message', async (msg) => {
     
   } else {
     // Задаем следующий вопрос
-    const nextQuestion = `
-Вопрос ${session.currentStep + 1}/${config.QUESTIONS.length}:
-${session.getCurrentQuestion()}
-    `;
-    
-    bot.sendMessage(chatId, nextQuestion);
+    await sendNextQuestion(chatId, session);
   }
 });
 
