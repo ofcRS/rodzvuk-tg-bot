@@ -99,7 +99,13 @@ bot.onText(/\/help/, (msg) => {
 Бот может обрабатывать тысячи запросов одновременно!
   `;
   
-  bot.sendMessage(chatId, helpMessage);
+  bot.sendMessage(chatId, helpMessage, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+      ]
+    }
+  });
 });
 
 // Команда /suggest
@@ -138,9 +144,21 @@ bot.onText(/\/cancel/, (msg) => {
   if (userStates.has(userId)) {
     const session = userStates.get(userId);
     session.reset();
-    bot.sendMessage(chatId, '❌ Заявка отменена. Чтобы начать заново, используй /suggest');
+    bot.sendMessage(chatId, '❌ Заявка отменена.', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+        ]
+      }
+    });
   } else {
-    bot.sendMessage(chatId, 'У тебя нет активной заявки для отмены.');
+    bot.sendMessage(chatId, 'У тебя нет активной заявки для отмены.', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+        ]
+      }
+    });
   }
 });
 
@@ -154,7 +172,13 @@ async function sendNextQuestion(chatId, session) {
 ${session.getCurrentQuestion()}
   `;
   
-  await bot.sendMessage(chatId, questionText);
+  await bot.sendMessage(chatId, questionText, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Отмена', callback_data: 'cancel_submission' }]
+      ]
+    }
+  });
 }
 
 // Обработка callback от inline кнопок
@@ -182,6 +206,22 @@ bot.on('callback_query', async (callbackQuery) => {
     return;
   }
   
+  if (data === 'cancel_submission') {
+    if (userStates.has(userId)) {
+      const session = userStates.get(userId);
+      session.reset();
+    }
+    await bot.sendMessage(chatId, '❌ Заявка отменена.', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+        ]
+      }
+    });
+    bot.answerCallbackQuery(callbackQuery.id);
+    return;
+  }
+  
   bot.answerCallbackQuery(callbackQuery.id, { text: 'Неизвестное действие' });
 });
 
@@ -198,14 +238,26 @@ bot.on('message', async (msg) => {
   
   // Проверяем, есть ли активная сессия
   if (!userStates.has(userId)) {
-    bot.sendMessage(chatId, 'Чтобы начать предложение трека, используй команду /suggest');
+    bot.sendMessage(chatId, 'Чтобы начать предложение трека, нажмите кнопку ниже', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+        ]
+      }
+    });
     return;
   }
   
   const session = userStates.get(userId);
   
   if (!session.isActive) {
-    bot.sendMessage(chatId, 'Чтобы начать предложение трека, используй команду /suggest');
+    bot.sendMessage(chatId, 'Чтобы начать предложение трека, нажмите кнопку ниже', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+        ]
+      }
+    });
     return;
   }
   
@@ -231,7 +283,13 @@ bot.on('message', async (msg) => {
 Спасибо за предложку! Мы рассмотрим вашу музыку в течение 8 недель. Если вы хотите быстрее, то пишите Иннокентию: t.me/rodpromo
       `;
       
-      bot.sendMessage(chatId, finalMessage);
+      bot.sendMessage(chatId, finalMessage, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: 'Предложить ещё один релиз', callback_data: 'start_suggest' }]
+          ]
+        }
+      });
       session.reset();
       
     } catch (error) {
