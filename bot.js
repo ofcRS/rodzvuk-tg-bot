@@ -56,6 +56,50 @@ class UserSession {
   }
 }
 
+// -------- Helpers: URL validation --------
+function extractUrlCandidates(text) {
+  if (!text) return [];
+  const regex = /((?:https?:\/\/)?(?:[\w-]+\.)+[a-z]{2,}(?:[^\s]*)?)/gi;
+  const matches = [];
+  let m;
+  while ((m = regex.exec(text)) !== null) {
+    matches.push(m[1]);
+  }
+  return matches;
+}
+
+function toValidHttpUrl(rawCandidate) {
+  if (!rawCandidate) return null;
+  let candidate = rawCandidate.trim();
+  if (!/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url;
+  } catch (_) {
+    return null;
+  }
+}
+
+function hasExactlyOneUrl(text) {
+  const candidates = extractUrlCandidates(text);
+  const valid = candidates
+    .map(toValidHttpUrl)
+    .filter(Boolean);
+  return { count: valid.length, url: valid[0] || null };
+}
+
+function isAllowedListeningHost(hostname) {
+  const h = (hostname || '').toLowerCase();
+  return (
+    h.includes('spotify.com') ||
+    h.includes('music.yandex.') ||
+    h === 'band.link' || h.endsWith('.band.link')
+  );
+}
+
 // Команда /start
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -261,8 +305,39 @@ bot.on('message', async (msg) => {
     return;
   }
   
-  // Сохраняем ответ
-  session.addAnswer(userMessage);
+  // Валидации по шагам
+  const stepIndex = session.currentStep;
+  let processedAnswer = userMessage;
+
+  // Вопрос 5: ссылка на прослушивание (только одна, разрешенные домены)
+  if (stepIndex === 4) {
+    const { count, url } = hasExactlyOneUrl(userMessage);
+    if (count !== 1 || !url) {
+      await bot.sendMessage(chatId, 'Отправьте ровно одну ссылку на прослушивание (Spotify, Яндекс Музыка или BandLink).');
+      await sendNextQuestion(chatId, session);
+      return;
+    }
+    if (!isAllowedListeningHost(url.hostname)) {
+      await bot.sendMessage(chatId, 'Ссылка должна быть на Spotify, Яндекс Музыка или BandLink.');
+      await sendNextQuestion(chatId, session);
+      return;
+    }
+    processedAnswer = url.toString();
+  }
+
+  // Вопрос 6: ссылка на соцсеть (ровно одна валидная ссылка)
+  if (stepIndex === 5) {
+    const { count, url } = hasExactlyOneUrl(userMessage);
+    if (count !== 1 || !url) {
+      await bot.sendMessage(chatId, 'Отправьте ровно одну ссылку на вашу соцсеть.');
+      await sendNextQuestion(chatId, session);
+      return;
+    }
+    processedAnswer = url.toString();
+  }
+
+  // Сохраняем валидированный ответ
+  session.addAnswer(processedAnswer);
   session.nextStep();
   
   // Проверяем, все ли вопросы заданы
