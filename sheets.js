@@ -43,7 +43,7 @@ class SheetsService {
       // Проверяем, есть ли данные в первой строке
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: 'Sheet1!A1:J1'
+        range: 'Sheet1!A1:K1'
       });
 
       const rows = response.data.values;
@@ -81,13 +81,14 @@ class SheetsService {
       const values = [
         [
           currentDate,
-          data.name || '',
-          data.artist || '',
-          data.link || '',
-          data.language || '',
-          data.genre || '',
-          data.reason || '',
-          data.contact || '',
+          data.artist_name || '',
+          data.release_title || '',
+          data.city || '',
+          data.genres || '',
+          data.listening_link || '',
+          data.social_link || '',
+          data.description || '',
+          data.email || '',
           data.userId || '',
           data.username || ''
         ]
@@ -95,7 +96,7 @@ class SheetsService {
 
       const request = {
         spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: 'Sheet1!A:J',
+        range: 'Sheet1!A:K',
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         resource: {
@@ -120,20 +121,21 @@ class SheetsService {
     try {
       const headers = [
         'Дата',
-        'Имя',
-        'Исполнитель и трек',
-        'Ссылка',
-        'Язык',
-        'Жанр',
-        'Причина рекомендации',
-        'Контакт',
+        'Название артиста',
+        'Название релиза',
+        'Город',
+        'Жанры (EN)',
+        'Ссылка на прослушивание',
+        'Ссылка на соцсеть',
+        'Описание релиза',
+        'E-mail',
         'User ID',
         'Username'
       ];
 
       const request = {
         spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: 'Sheet1!A1:J1',
+        range: 'Sheet1!A1:K1',
         valueInputOption: 'RAW',
         resource: {
           values: [headers]
@@ -144,6 +146,44 @@ class SheetsService {
       console.log('Headers set up successfully');
     } catch (error) {
       console.error('Error setting up headers:', error);
+      throw error;
+    }
+  }
+
+  async updateHeaders() {
+    if (!this.initialized) {
+      await this.init();
+    }
+
+    try {
+      const headers = [
+        'Дата',
+        'Название артиста',
+        'Название релиза',
+        'Город',
+        'Жанры (EN)',
+        'Ссылка на прослушивание',
+        'Ссылка на соцсеть',
+        'Описание релиза',
+        'E-mail',
+        'User ID',
+        'Username'
+      ];
+
+      const request = {
+        spreadsheetId: config.GOOGLE_SHEET_ID,
+        range: 'Sheet1!A1:K1',
+        valueInputOption: 'RAW',
+        resource: {
+          values: [headers]
+        }
+      };
+
+      await this.sheets.spreadsheets.values.update(request);
+      await this.formatHeaders();
+      console.log('Headers updated successfully');
+    } catch (error) {
+      console.error('Error updating headers:', error);
       throw error;
     }
   }
@@ -163,7 +203,7 @@ class SheetsService {
               startRowIndex: 0,
               endRowIndex: 1,
               startColumnIndex: 0,
-              endColumnIndex: 10
+              endColumnIndex: 11
             },
             cell: {
               userEnteredFormat: {

@@ -39,13 +39,14 @@ class UserSession {
 
   getQuestionKey(index) {
     const keyMap = {
-      0: 'name',
-      1: 'artist',
-      2: 'link',
-      3: 'language',
-      4: 'genre',
-      5: 'reason',
-      6: 'contact'
+      0: 'artist_name',
+      1: 'release_title',
+      2: 'city',
+      3: 'genres',
+      4: 'listening_link',
+      5: 'social_link',
+      6: 'description',
+      7: 'email'
     };
     return keyMap[index] || `question_${index}`;
   }
@@ -61,19 +62,21 @@ bot.onText(/\/start/, (msg) => {
   const userId = msg.from.id;
   
   const welcomeMessage = `
-🎵 Привет! Я бот для сбора предложений треков.
+Добро пожаловать в Родной звук (http://t.me/rodzvuk)!
 
-Я задам тебе несколько вопросов о треке, который ты хочешь предложить. Все ответы будут автоматически сохранены в таблицу.
+Вы можете предложить свою музыку с помощью этого бота.
+Ваши песни должны быть на стримингах. Музыку до выхода (до релиза) мы не слушаем.
 
-Чтобы начать, используй команду /suggest
-
-Доступные команды:
-/suggest - Предложить трек
-/cancel - Отменить текущую заявку
-/help - Помощь
+Мы слушаем заявки в течение 8 недель. Если нам понравится музыка, то мы её опубликуем или добавим в плейлисты.
   `;
   
-  bot.sendMessage(chatId, welcomeMessage);
+  bot.sendMessage(chatId, welcomeMessage, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: 'Предложить музыку', callback_data: 'start_suggest' }]
+      ]
+    }
+  });
 });
 
 // Команда /help
@@ -146,39 +149,12 @@ async function sendNextQuestion(chatId, session) {
   const questionIndex = session.currentStep;
   const totalQuestions = config.QUESTIONS.length;
   
-  // Если это вопрос о языке (индекс 3), показываем кнопки
-  if (questionIndex === 3) {
-    const languageKeyboard = {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: '🇷🇺 Русский', callback_data: 'lang_russian' },
-            { text: '🇺🇸 Английский', callback_data: 'lang_english' }
-          ],
-          [
-            { text: '🌍 Другой язык', callback_data: 'lang_other' }
-          ]
-        ]
-      }
-    };
-    
-    const questionText = `
+  const questionText = `
 Вопрос ${questionIndex + 1}/${totalQuestions}:
 ${session.getCurrentQuestion()}
-
-Выбери язык трека:
-    `;
-    
-    await bot.sendMessage(chatId, questionText, languageKeyboard);
-  } else {
-    // Обычный вопрос
-    const questionText = `
-Вопрос ${questionIndex + 1}/${totalQuestions}:
-${session.getCurrentQuestion()}
-    `;
-    
-    await bot.sendMessage(chatId, questionText);
-  }
+  `;
+  
+  await bot.sendMessage(chatId, questionText);
 }
 
 // Обработка callback от inline кнопок
@@ -187,90 +163,26 @@ bot.on('callback_query', async (callbackQuery) => {
   const userId = callbackQuery.from.id;
   const data = callbackQuery.data;
   
-  // Проверяем, есть ли активная сессия
-  if (!userStates.has(userId)) {
-    bot.answerCallbackQuery(callbackQuery.id, { text: 'Сессия не найдена. Начни заново с /suggest' });
+  if (data === 'start_suggest') {
+    if (!userStates.has(userId)) {
+      userStates.set(userId, new UserSession(userId));
+    }
+    const session = userStates.get(userId);
+    session.reset();
+    session.isActive = true;
+
+    const startMessage = `
+🎵 Начинаем! Отвечайте на вопросы по одному сообщению.
+В любой момент можно отменить командой /cancel
+    `;
+    
+    await bot.sendMessage(chatId, startMessage);
+    await sendNextQuestion(chatId, session);
+    bot.answerCallbackQuery(callbackQuery.id);
     return;
   }
   
-  const session = userStates.get(userId);
-  
-  if (!session.isActive) {
-    bot.answerCallbackQuery(callbackQuery.id, { text: 'Сессия не активна. Начни заново с /suggest' });
-    return;
-  }
-  
-  // Обработка выбора языка
-  if (data.startsWith('lang_')) {
-    let selectedLanguage;
-    
-    switch (data) {
-      case 'lang_russian':
-        selectedLanguage = 'Русский';
-        break;
-      case 'lang_english':
-        selectedLanguage = 'Английский';
-        break;
-      case 'lang_other':
-        selectedLanguage = 'Другой язык';
-        break;
-      default:
-        bot.answerCallbackQuery(callbackQuery.id, { text: 'Неизвестный выбор' });
-        return;
-    }
-    
-    // Сохраняем ответ
-    session.addAnswer(selectedLanguage);
-    session.nextStep();
-    
-    // Отвечаем на callback
-    bot.answerCallbackQuery(callbackQuery.id, { text: `Выбран язык: ${selectedLanguage}` });
-    
-    // Проверяем, все ли вопросы заданы
-    if (session.isComplete()) {
-      // Все вопросы отвечены, сохраняем в Google Sheets
-      try {
-        bot.sendMessage(chatId, '⏳ Сохраняю твою заявку...');
-        
-        const submissionData = {
-          ...session.answers,
-          userId: userId,
-          username: callbackQuery.from.username || callbackQuery.from.first_name || 'Unknown'
-        };
-        
-        await sheetsService.addSubmission(submissionData);
-        
-        // Создаем сводку ответов
-        const summary = `
-✅ Заявка успешно сохранена!
-
-📋 Твои ответы:
-• Имя: ${session.answers.name || 'Не указано'}
-• Исполнитель и трек: ${session.answers.artist || 'Не указано'}
-• Ссылка: ${session.answers.link || 'Не указано'}
-• Язык: ${session.answers.language || 'Не указано'}
-• Жанр: ${session.answers.genre || 'Не указано'}
-• Причина рекомендации: ${session.answers.reason || 'Не указано'}
-• Контакт: ${session.answers.contact || 'Не указано'}
-
-Спасибо за предложение! 🎵
-Чтобы предложить еще один трек, используй /suggest
-        `;
-        
-        bot.sendMessage(chatId, summary);
-        session.reset();
-        
-      } catch (error) {
-        console.error('Error saving submission:', error);
-        bot.sendMessage(chatId, '❌ Произошла ошибка при сохранении заявки. Попробуй еще раз позже.');
-        session.reset();
-      }
-      
-    } else {
-      // Задаем следующий вопрос
-      await sendNextQuestion(chatId, session);
-    }
-  }
+  bot.answerCallbackQuery(callbackQuery.id, { text: 'Неизвестное действие' });
 });
 
 // Обработка текстовых сообщений
@@ -297,12 +209,6 @@ bot.on('message', async (msg) => {
     return;
   }
   
-  // Если сейчас вопрос о языке (индекс 3), игнорируем текстовый ввод
-  if (session.currentStep === 3) {
-    bot.sendMessage(chatId, 'Пожалуйста, выбери язык с помощью кнопок выше ☝️');
-    return;
-  }
-  
   // Сохраняем ответ
   session.addAnswer(userMessage);
   session.nextStep();
@@ -321,24 +227,11 @@ bot.on('message', async (msg) => {
       
       await sheetsService.addSubmission(submissionData);
       
-      // Создаем сводку ответов
-      const summary = `
-✅ Заявка успешно сохранена!
-
-📋 Твои ответы:
-• Имя: ${session.answers.name || 'Не указано'}
-• Исполнитель и трек: ${session.answers.artist || 'Не указано'}
-• Ссылка: ${session.answers.link || 'Не указано'}
-• Язык: ${session.answers.language || 'Не указано'}
-• Жанр: ${session.answers.genre || 'Не указано'}
-• Причина рекомендации: ${session.answers.reason || 'Не указано'}
-• Контакт: ${session.answers.contact || 'Не указано'}
-
-Спасибо за предложение! 🎵
-Чтобы предложить еще один трек, используй /suggest
+      const finalMessage = `
+Спасибо за предложку! Мы рассмотрим вашу музыку в течение 8 недель. Если вы хотите быстрее, то пишите Иннокентию: t.me/rodpromo
       `;
       
-      bot.sendMessage(chatId, summary);
+      bot.sendMessage(chatId, finalMessage);
       session.reset();
       
     } catch (error) {
@@ -384,21 +277,147 @@ initializeBot();
 
 // Создаем HTTP сервер для Heroku
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Middleware для парсинга JSON
+app.use(express.json());
+
+// Статические файлы для админ панели
+app.use('/admin', express.static(path.join(__dirname, 'public')));
 
 // Простой endpoint для проверки здоровья бота
 app.get('/', (req, res) => {
   res.json({
     status: 'Bot is running! 🚀',
     uptime: process.uptime(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    adminPanel: '/admin/admin.html'
   });
 });
+
+// Редирект на админ панель
+app.get('/admin', (req, res) => {
+  res.redirect('/admin/admin.html');
+});
+
+// API для получения вопросов
+app.get('/api/questions', (req, res) => {
+  try {
+    res.json({
+      questions: config.QUESTIONS,
+      count: config.QUESTIONS.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting questions:', error);
+    res.status(500).json({ error: 'Ошибка при получении вопросов' });
+  }
+});
+
+// API для сохранения вопросов
+app.post('/api/questions', (req, res) => {
+  try {
+    const { questions } = req.body;
+    
+    if (!Array.isArray(questions)) {
+      return res.status(400).json({ error: 'Вопросы должны быть массивом' });
+    }
+    
+    if (questions.length === 0) {
+      return res.status(400).json({ error: 'Список вопросов не может быть пустым' });
+    }
+    
+    // Валидация вопросов
+    const invalidQuestions = questions.filter(q => !q || typeof q !== 'string' || !q.trim());
+    if (invalidQuestions.length > 0) {
+      return res.status(400).json({ error: 'Все вопросы должны быть заполнены' });
+    }
+    
+    // Обновляем конфигурацию
+    config.QUESTIONS = questions.map(q => q.trim());
+    
+    // Сохраняем в файл конфигурации
+    saveConfigToFile();
+    
+    res.json({
+      success: true,
+      message: 'Вопросы успешно сохранены',
+      questions: config.QUESTIONS,
+      count: config.QUESTIONS.length,
+      timestamp: new Date().toISOString()
+    });
+    
+    console.log('Questions updated:', config.QUESTIONS);
+    
+  } catch (error) {
+    console.error('Error saving questions:', error);
+    res.status(500).json({ error: 'Ошибка при сохранении вопросов' });
+  }
+});
+
+// API для получения ссылки на Google Sheets
+app.get('/api/sheets-url', (req, res) => {
+  try {
+    if (!config.GOOGLE_SHEET_ID) {
+      return res.status(404).json({ error: 'Google Sheets ID не настроен' });
+    }
+    
+    const url = `https://docs.google.com/spreadsheets/d/${config.GOOGLE_SHEET_ID}/edit`;
+    res.json({ url });
+  } catch (error) {
+    console.error('Error getting sheets URL:', error);
+    res.status(500).json({ error: 'Ошибка при получении ссылки' });
+  }
+});
+
+// API для обновления заголовков в Google Sheets
+app.post('/api/update-sheets-headers', async (req, res) => {
+  try {
+    await sheetsService.updateHeaders();
+    res.json({
+      success: true,
+      message: 'Заголовки в Google Sheets обновлены',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error updating sheets headers:', error);
+    res.status(500).json({ error: 'Ошибка при обновлении заголовков' });
+  }
+});
+
+// Функция для сохранения конфигурации в файл
+function saveConfigToFile() {
+  try {
+    const configPath = path.join(__dirname, 'config.js');
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    
+    // Создаем новый контент с обновленными вопросами
+    const questionsArray = config.QUESTIONS.map(q => `    '${q.replace(/'/g, "\\'")}'`).join(',\n');
+    const newQuestionsSection = `  // Bot Configuration
+  QUESTIONS: [
+${questionsArray}
+  ]`;
+    
+    // Заменяем секцию с вопросами
+    const updatedContent = configContent.replace(
+      /\/\/ Bot Configuration\s*\n\s*QUESTIONS:\s*\[[^\]]*\]/,
+      newQuestionsSection
+    );
+    
+    fs.writeFileSync(configPath, updatedContent, 'utf8');
+    console.log('Configuration saved to file');
+  } catch (error) {
+    console.error('Error saving config to file:', error);
+  }
+}
 
 // Запускаем HTTP сервер
 app.listen(PORT, () => {
   console.log(`HTTP Server is running on port ${PORT}`);
+  console.log(`Admin panel available at: http://localhost:${PORT}/admin`);
 });
 
 module.exports = bot; 
