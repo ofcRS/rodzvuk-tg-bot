@@ -355,7 +355,9 @@ bot.on('message', async (msg) => {
       await sheetsService.addSubmission(submissionData);
       
       const finalMessage = `
-Спасибо за предложку! Мы рассмотрим вашу музыку в течение 8 недель. Если вы хотите быстрее, то пишите Иннокентию: t.me/rodpromo
+Спасибо за предложку! Мы рассмотрим вашу музыку в течение 8 недель, и если нам понравится, то выложим в соцсетях, либо добавим в плейлисты.
+
+Если вы хотите попасть к нам без очереди, то пишите Иннокентию: t.me/rodpromo
       `;
       
       bot.sendMessage(chatId, finalMessage, {
