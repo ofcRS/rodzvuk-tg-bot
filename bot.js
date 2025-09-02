@@ -59,6 +59,7 @@ class UserSession {
 // -------- Helpers: URL validation --------
 function extractUrlCandidates(text) {
   if (!text) return [];
+  
   const regex = /((?:https?:\/\/)?(?:[\w-]+\.)+[a-z]{2,}(?:[^\s]*)?)/gi;
   const matches = [];
   let m;
@@ -91,14 +92,7 @@ function hasExactlyOneUrl(text) {
   return { count: valid.length, url: valid[0] || null };
 }
 
-function isAllowedListeningHost(hostname) {
-  const h = (hostname || '').toLowerCase();
-  return (
-    h.includes('spotify.com') ||
-    h.includes('music.yandex.') ||
-    h === 'band.link' || h.endsWith('.band.link')
-  );
-}
+
 
 // Команда /start
 bot.onText(/\/start/, (msg) => {
@@ -309,16 +303,11 @@ bot.on('message', async (msg) => {
   const stepIndex = session.currentStep;
   let processedAnswer = userMessage;
 
-  // Вопрос 5: ссылка на прослушивание (только одна, разрешенные домены)
+  // Вопрос 5: ссылка на прослушивание (только одна валидная ссылка)
   if (stepIndex === 4) {
     const { count, url } = hasExactlyOneUrl(userMessage);
     if (count !== 1 || !url) {
-      await bot.sendMessage(chatId, 'Отправьте ровно одну ссылку на прослушивание (Spotify, Яндекс Музыка или BandLink).');
-      await sendNextQuestion(chatId, session);
-      return;
-    }
-    if (!isAllowedListeningHost(url.hostname)) {
-      await bot.sendMessage(chatId, 'Ссылка должна быть на Spotify, Яндекс Музыка или BandLink.');
+      await bot.sendMessage(chatId, 'Отправьте ровно одну ссылку на прослушивание.');
       await sendNextQuestion(chatId, session);
       return;
     }
