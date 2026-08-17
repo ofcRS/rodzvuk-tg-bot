@@ -1,9 +1,29 @@
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
 const sheetsService = require('./sheets');
+const { createPollingWatchdog } = require('./pollingWatchdog');
+
+// Держим длинный опрос 50 секунд и прерываем запрос, если за 65 секунд не пришли
+// заголовки ответа. Без этого таймаута повисшее TCP-соединение с Telegram
+// оставляет getUpdates висеть бесконечно, и цикл опроса молча останавливается -
+// именно так бот оглох 10.08.2026. Подробности в pollingWatchdog.js.
+const POLLING_TIMEOUT_SECONDS = 50;
+const REQUEST_TIMEOUT_MS = (POLLING_TIMEOUT_SECONDS + 15) * 1000;
 
 // Создаем экземпляр бота
-const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(config.BOT_TOKEN, {
+  polling: {
+    interval: 300,
+    autoStart: false,
+    params: { timeout: POLLING_TIMEOUT_SECONDS }
+  },
+  request: { timeout: REQUEST_TIMEOUT_MS }
+});
+
+// Сторож подменяет bot.getUpdates, поэтому создаем его до запуска опроса.
+const pollingWatchdog = createPollingWatchdog(bot);
+pollingWatchdog.start();
+bot.startPolling();
 
 // Хранилище для состояний пользователей
 const userStates = new Map();
@@ -414,9 +434,17 @@ app.use('/admin', express.static(path.join(__dirname, 'public')));
 
 // Простой endpoint для проверки здоровья бота
 app.get('/', (req, res) => {
+  const polling = pollingWatchdog.status();
   res.json({
-    status: 'Bot is running! 🚀',
+    status: polling.healthy ? 'Bot is running! 🚀' : 'Bot polling is stalled! ⚠️',
     uptime: process.uptime(),
+    // Свежесть опроса: раньше зависший опрос был неотличим от рабочего бота
+    polling: {
+      healthy: polling.healthy,
+      isPolling: bot.isPolling(),
+      lastPollSettledAt: polling.lastPollSettledAt,
+      secondsSinceLastPoll: Math.round(polling.msSinceLastPoll / 1000)
+    },
     timestamp: new Date().toISOString(),
     adminPanel: '/admin/admin.html'
   });
